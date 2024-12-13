@@ -147,13 +147,17 @@ def extract_pdf_data(pdf_path):
         db.session.rollback()
         return False
 
-def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', order='asc'):
+def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', order='asc', active_only=False):
     """Generate a PDF report of contracts."""
     if contracts is None:
+        query = Contract.query
+        if active_only:
+            query = query.filter_by(status='Active')
+            
         if order == 'asc':
-            contracts = Contract.query.order_by(getattr(Contract, sort_by)).all()
+            contracts = query.order_by(getattr(Contract, sort_by)).all()
         else:
-            contracts = Contract.query.order_by(getattr(Contract, sort_by).desc()).all()
+            contracts = query.order_by(getattr(Contract, sort_by).desc()).all()
 
     # Use landscape orientation for better fit
     doc = SimpleDocTemplate(

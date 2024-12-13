@@ -111,9 +111,10 @@ def generate_report():
     try:
         sort_by = request.args.get('sort_by', 'expiration_date')
         order = request.args.get('order', 'asc')
+        active_only = request.args.get('active_only', 'false').lower() == 'true'
         
         output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contract_report.pdf')
-        generate_pdf_report(output_path, sort_by=sort_by, order=order)
+        generate_pdf_report(output_path, sort_by=sort_by, order=order, active_only=active_only)
         
         return send_file(output_path, as_attachment=True, download_name='contract_report.pdf')
     except Exception as e:
