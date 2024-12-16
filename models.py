@@ -1,15 +1,19 @@
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
 
 db = SQLAlchemy()
 
 class Contract(db.Model):
+    __tablename__ = 'contract'
+    
     id = db.Column(db.Integer, primary_key=True)
-    contract_name = db.Column(db.String(200), nullable=False)
-    start_date = db.Column(db.DateTime)
-    expiration_date = db.Column(db.DateTime)
-    value = db.Column(db.Float, nullable=False, default=0.0)
-    status = db.Column(db.String(50), nullable=False, default='Active')
-    notes = db.Column(db.Text)
+    contract_number = db.Column(db.String(50), unique=True, nullable=False)
+    contract_name = db.Column(db.String(100), nullable=False)
+    start_date = db.Column(db.Date, nullable=True)
+    expiration_date = db.Column(db.Date, nullable=True)
+    value = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    notes = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
-        return f'<Contract {self.contract_name}>'
+        return f'<Contract {self.contract_number}: {self.contract_name}>'

@@ -1,50 +1,93 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from datetime import datetime
 import os
 from models import db, Contract
 from pdf_operations import extract_pdf_data, generate_pdf_report
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///contracts.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.secret_key = 'your-secret-key-here'  # Required for flashing messages
 
-# Initialize the database with the app
 db.init_app(app)
 
-def init_db():
-    with app.app_context():
-        db.create_all()
+with app.app_context():
+    db.create_all()
 
 @app.route('/')
 def index():
+    search_field = request.args.get('search_field', '')
+    search_term = request.args.get('search_term', '')
     sort_by = request.args.get('sort_by', 'expiration_date')
     order = request.args.get('order', 'asc')
     
-    if order == 'asc':
-        contracts = Contract.query.order_by(getattr(Contract, sort_by)).all()
-    else:
-        contracts = Contract.query.order_by(getattr(Contract, sort_by).desc()).all()
+    query = Contract.query
     
-    return render_template('index.html', contracts=contracts)
+    if search_term and search_field:
+        if search_field == 'contract_number':
+            query = query.filter(Contract.contract_number.ilike(f'%{search_term}%'))
+        elif search_field == 'contract_name':
+            query = query.filter(Contract.contract_name.ilike(f'%{search_term}%'))
+        elif search_field == 'status':
+            query = query.filter(Contract.status.ilike(f'%{search_term}%'))
+        elif search_field == 'value':
+            try:
+                value = float(search_term)
+                query = query.filter(Contract.value == value)
+            except ValueError:
+                flash('Please enter a valid number for value search', 'error')
+        elif search_field == 'notes':
+            query = query.filter(Contract.notes.ilike(f'%{search_term}%'))
+    
+    if order == 'asc':
+        query = query.order_by(getattr(Contract, sort_by))
+    else:
+        query = query.order_by(getattr(Contract, sort_by).desc())
+    
+    contracts = query.all()
+    return render_template('index.html', 
+                         contracts=contracts,
+                         search_field=search_field,
+                         search_term=search_term,
+                         title="Hudson County Correctional Facility",
+                         page_title="Contract Management System")
 
 @app.route('/add_contract', methods=['GET', 'POST'])
 def add_contract():
     if request.method == 'POST':
+        contract_number = request.form.get('contract_number', '').strip()
+        contract_name = request.form.get('contract_name', '').strip()
+        start_date = request.form.get('start_date')
+        expiration_date = request.form.get('expiration_date')
+        value = request.form.get('value')
+        status = request.form.get('status')
+        notes = request.form.get('notes')
+
+        # Validate contract number
+        if not contract_number:
+            flash('Contract number is required', 'error')
+            return redirect(url_for('add_contract'))
+
+        # Check if contract number already exists
+        existing_contract = Contract.query.filter_by(contract_number=contract_number).first()
+        if existing_contract:
+            flash('This contract number already exists in the database', 'error')
+            return redirect(url_for('add_contract'))
+
         try:
-            # Create contract with required fields
+            # Convert dates if they're not empty
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else None
+            expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d').date() if expiration_date else None
+            
             contract = Contract(
-                contract_name=request.form['contract_name'],
-                value=float(request.form['value']),
-                status=request.form['status'],
-                notes=request.form['notes']
+                contract_number=contract_number,
+                contract_name=contract_name,
+                start_date=start_date,
+                expiration_date=expiration_date,
+                value=float(value),
+                status=status,
+                notes=notes
             )
-            
-            # Only set dates if status is not Pending or State Contract
-            if request.form['status'] not in ['Pending', 'State Contract']:
-                contract.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
-                contract.expiration_date = datetime.strptime(request.form['expiration_date'], '%Y-%m-%d')
-            
             db.session.add(contract)
             db.session.commit()
             flash('Contract added successfully!', 'success')
@@ -52,38 +95,54 @@ def add_contract():
         except Exception as e:
             flash(f'Error adding contract: {str(e)}', 'error')
             return redirect(url_for('add_contract'))
+
     return render_template('add_contract.html')
 
 @app.route('/edit_contract/<int:id>', methods=['GET', 'POST'])
 def edit_contract(id):
     contract = Contract.query.get_or_404(id)
     if request.method == 'POST':
+        new_contract_number = request.form.get('contract_number', '').strip()
+        
+        # Validate contract number
+        if not new_contract_number:
+            flash('Contract number is required', 'error')
+            return redirect(url_for('edit_contract', id=id))
+
+        # Check if new contract number already exists (excluding current contract)
+        existing_contract = Contract.query.filter(
+            Contract.contract_number == new_contract_number,
+            Contract.id != id
+        ).first()
+        
+        if existing_contract:
+            flash('This contract number is already used by another contract', 'error')
+            return redirect(url_for('edit_contract', id=id))
+
         try:
-            contract.contract_name = request.form['contract_name']
-            contract.status = request.form['status']
+            contract.contract_number = new_contract_number
+            contract.contract_name = request.form.get('contract_name', '').strip()
+            start_date = request.form.get('start_date')
+            expiration_date = request.form.get('expiration_date')
+            contract.start_date = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else None
+            contract.expiration_date = datetime.strptime(expiration_date, '%Y-%m-%d').date() if expiration_date else None
+            contract.value = float(request.form.get('value'))
+            contract.status = request.form.get('status')
+            contract.notes = request.form.get('notes')
             
-            # Handle dates based on status
-            if contract.status in ['Pending', 'State Contract']:
-                contract.start_date = None
-                contract.expiration_date = None
-            else:
-                contract.start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d')
-                contract.expiration_date = datetime.strptime(request.form['expiration_date'], '%Y-%m-%d')
-            
-            contract.value = float(request.form['value'])
-            contract.notes = request.form['notes']
             db.session.commit()
             flash('Contract updated successfully!', 'success')
             return redirect(url_for('index'))
         except Exception as e:
             flash(f'Error updating contract: {str(e)}', 'error')
             return redirect(url_for('edit_contract', id=id))
+
     return render_template('edit_contract.html', contract=contract)
 
 @app.route('/delete_contract/<int:id>')
 def delete_contract(id):
+    contract = Contract.query.get_or_404(id)
     try:
-        contract = Contract.query.get_or_404(id)
         db.session.delete(contract)
         db.session.commit()
         flash('Contract deleted successfully!', 'success')
@@ -121,7 +180,45 @@ def generate_report():
         flash(f'Error generating report: {str(e)}', 'error')
         return redirect(url_for('index'))
 
+@app.route('/search')
+def search():
+    search_term = request.args.get('query', '').strip()
+    search_field = request.args.get('field', 'contract_name')
+    
+    if not search_term:
+        return redirect(url_for('index'))
+    
+    # Create the base query
+    query = Contract.query
+    
+    # Apply search filter based on the selected field
+    if search_field == 'contract_number':
+        query = query.filter(Contract.contract_number.ilike(f'%{search_term}%'))
+    elif search_field == 'contract_name':
+        query = query.filter(Contract.contract_name.ilike(f'%{search_term}%'))
+    elif search_field == 'status':
+        query = query.filter(Contract.status.ilike(f'%{search_term}%'))
+    elif search_field == 'value':
+        try:
+            search_value = float(search_term)
+            query = query.filter(Contract.value == search_value)
+        except ValueError:
+            flash('Please enter a valid number for value search', 'error')
+            return redirect(url_for('index'))
+    elif search_field == 'notes':
+        query = query.filter(Contract.notes.ilike(f'%{search_term}%'))
+    
+    # Execute the query
+    contracts = query.all()
+    
+    # Flash a message if no results found
+    if not contracts:
+        flash(f'No contracts found matching "{search_term}" in {search_field}', 'info')
+    
+    return render_template('index.html', 
+                         contracts=contracts, 
+                         search_term=search_term, 
+                         search_field=search_field)
+
 if __name__ == '__main__':
-    with app.app_context():
-        init_db()
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
