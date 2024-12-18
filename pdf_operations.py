@@ -150,40 +150,17 @@ def extract_pdf_data(pdf_path):
         return False
 
 def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', order='asc', active_only=False, report_type=None):
-    """Generate a PDF report of contracts.
+    """Generate a PDF report of contracts."""
+    # Use landscape orientation for more width
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=landscape(letter),
+        leftMargin=36,
+        rightMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
     
-    Args:
-        output_path (str): Path where to save the PDF
-        contracts (list): List of contracts to include in report. If None, all contracts are included.
-        sort_by (str): Field to sort by
-        order (str): Sort order ('asc' or 'desc')
-        active_only (bool): If True, only include active contracts
-        report_type (str): Type of report to generate ('simplified' or None for full report)
-    """
-    from app import Contract
-    
-    # If no contracts provided, query based on filters
-    if contracts is None:
-        query = Contract.query
-        
-        # Apply sorting
-        if sort_by == 'expiration_date':
-            if order == 'asc':
-                query = query.order_by(Contract.expiration_date.asc())
-            else:
-                query = query.order_by(Contract.expiration_date.desc())
-        elif sort_by == 'contract_number':
-            if order == 'asc':
-                query = query.order_by(Contract.contract_number.asc())
-            else:
-                query = query.order_by(Contract.contract_number.desc())
-                
-        if active_only:
-            query = query.filter(Contract.status == 'Active')
-                
-        contracts = query.all()
-    
-    doc = SimpleDocTemplate(output_path, pagesize=landscape(letter))
     elements = []
     styles = getSampleStyleSheet()
     
@@ -201,6 +178,24 @@ def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', 
     if report_type == 'simplified':
         # Simplified report with only contract name, dates, and value
         data = [['Contract Name', 'Start Date', 'Expiration Date', 'Value']]
+        
+        # Query all contracts if not provided
+        if contracts is None:
+            from app import Contract
+            query = Contract.query
+            
+            # Apply sorting
+            if sort_by == 'expiration_date':
+                if order == 'asc':
+                    query = query.order_by(Contract.expiration_date.asc())
+                else:
+                    query = query.order_by(Contract.expiration_date.desc())
+            
+            if active_only:
+                query = query.filter(Contract.status == 'Active')
+            
+            contracts = query.all()
+        
         for contract in contracts:
             # Create Paragraph for contract name to enable proper wrapping
             contract_name = Paragraph(
@@ -221,8 +216,9 @@ def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', 
             ])
         
         # Create table with specific column widths
-        col_widths = [5*inch, 1.5*inch, 1.5*inch, 1.5*inch]
-        table = Table(data, colWidths=col_widths)
+        available_width = doc.width  # Use full available width
+        col_widths = [available_width * 0.5, available_width * 0.15, available_width * 0.15, available_width * 0.2]
+        table = Table(data, colWidths=col_widths, repeatRows=1)  # repeatRows=1 makes header repeat on each page
         
         # Style the table to match the example
         table.setStyle(TableStyle([
@@ -250,9 +246,15 @@ def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', 
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
             
-            # Text wrapping
+            # Text wrapping and alignment
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Vertically center all content
         ]))
+        
+        # Add table to elements
+        elements.append(table)
+        
+        # Build the PDF
+        doc.build(elements)
     else:
         # Full report with all details
         data = [['Contract #', 'Contract Name', 'Start Date', 'Expiration Date', 'Value', 'Status', 'Notes']]
@@ -286,5 +288,5 @@ def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', 
             ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ]))
     
-    elements.append(table)
-    doc.build(elements)
+        elements.append(table)
+        doc.build(elements)
