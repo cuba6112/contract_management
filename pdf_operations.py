@@ -149,7 +149,17 @@ def extract_pdf_data(pdf_path):
         db.session.rollback()
         return False
 
-def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', order='asc', active_only=False):
+def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', order='asc', active_only=False, report_type=None):
+    """Generate a PDF report of contracts.
+    
+    Args:
+        output_path (str): Path where to save the PDF
+        contracts (list): List of contracts to include in report. If None, all contracts are included.
+        sort_by (str): Field to sort by
+        order (str): Sort order ('asc' or 'desc')
+        active_only (bool): If True, only include active contracts
+        report_type (str): Type of report to generate ('simplified' or None for full report)
+    """
     from app import Contract
     
     # If no contracts provided, query based on filters
@@ -168,111 +178,113 @@ def generate_pdf_report(output_path, contracts=None, sort_by='expiration_date', 
             else:
                 query = query.order_by(Contract.contract_number.desc())
                 
+        if active_only:
+            query = query.filter(Contract.status == 'Active')
+                
         contracts = query.all()
-
+    
     doc = SimpleDocTemplate(output_path, pagesize=landscape(letter))
     elements = []
-    
-    # Add facility name and title
     styles = getSampleStyleSheet()
-    facility_style = ParagraphStyle(
-        'FacilityName',
-        parent=styles['Heading1'],
-        fontSize=20,
-        alignment=1,
-        spaceAfter=5,
-        leading=22
-    )
     
+    # Title
     title_style = ParagraphStyle(
         'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        alignment=1,
-        spaceAfter=5,
-        leading=20
-    )
-    
-    # Set the title based on the report type
-    title_text = "All Contracts Report by Expiration Date" if not active_only else "Active Contracts Report"
-    
-    facility = Paragraph("Hudson County Correctional Facility", facility_style)
-    title = Paragraph(title_text, title_style)
-    elements.append(facility)
-    elements.append(Spacer(1, 2))
-    elements.append(title)
-    elements.append(Spacer(1, 2))
-    
-    date_style = ParagraphStyle(
-        'DateStyle',
         parent=styles['Normal'],
         fontSize=12,
-        alignment=1,
-        spaceAfter=10,
-        leading=14
+        alignment=1,  # Center alignment
+        spaceAfter=20
     )
+    title = "Hudson County Correctional Facility - Contract Report"
+    elements.append(Paragraph(title, title_style))
     
-    # Add date
-    current_date = datetime.now().strftime("%B %d, %Y")
-    date_paragraph = Paragraph(f"Generated on: {current_date}", date_style)
-    elements.append(date_paragraph)
-    elements.append(Spacer(1, 10))
-    
-    # Prepare data for table
-    data = [['Contract #', 'Contract Name', 'Start Date', 'Exp. Date', 'Value ($)', 'Status']]
-    
-    for contract in contracts:
-        # Format dates
-        start_date = contract.start_date.strftime('%Y-%m-%d') if contract.start_date else ''
-        exp_date = contract.expiration_date.strftime('%Y-%m-%d') if contract.expiration_date else ''
+    if report_type == 'simplified':
+        # Simplified report with only contract name, dates, and value
+        data = [['Contract Name', 'Start Date', 'Expiration Date', 'Value']]
+        for contract in contracts:
+            # Create Paragraph for contract name to enable proper wrapping
+            contract_name = Paragraph(
+                contract.contract_name,
+                ParagraphStyle(
+                    'ContractName',
+                    fontSize=10,
+                    leading=12,  # Line spacing
+                    spaceBefore=0,
+                    spaceAfter=0,
+                )
+            )
+            data.append([
+                contract_name,  # Use Paragraph object instead of plain text
+                contract.start_date.strftime('%Y-%m-%d') if contract.start_date else '',
+                contract.expiration_date.strftime('%Y-%m-%d') if contract.expiration_date else '',
+                "${:,.2f}".format(contract.value) if contract.value else ''
+            ])
         
-        # Format value with commas and 2 decimal places
-        value = "{:,.2f}".format(contract.value) if contract.value else ''
+        # Create table with specific column widths
+        col_widths = [5*inch, 1.5*inch, 1.5*inch, 1.5*inch]
+        table = Table(data, colWidths=col_widths)
         
-        # Add row to data with wrapped contract name
-        data.append([
-            contract.contract_number,
-            Paragraph(contract.contract_name, ParagraphStyle('contract_name', fontSize=11, leading=13)),
-            start_date,
-            exp_date,
-            value,
-            contract.status
-        ])
-    
-    # Create table with adjusted column widths - increased Contract # width
-    table = Table(data, colWidths=[1.0*inch, 3.7*inch, 1.1*inch, 1.1*inch, 1.3*inch, 1.3*inch])
-    
-    # Style the table
-    style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Center align all by default
-        ('ALIGN', (1, 1), (1, -1), 'LEFT'),     # Left align contract names
-        ('ALIGN', (4, 1), (4, -1), 'RIGHT'),    # Right align values
-        ('ALIGN', (5, 1), (5, -1), 'LEFT'),     # Left align status
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 13),      # Header font
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-        ('TOPPADDING', (0, 0), (-1, 0), 10),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 11),     # Content font
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('WORDWRAP', (0, 0), (-1, -1), True),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('ROWHEIGHT', (0, 0), (-1, -1), 30),
-    ])
-    
-    # Add alternating row colors - using a lighter grey
-    for i in range(1, len(data)):
-        if i % 2 == 0:
-            style.add('BACKGROUND', (0, i), (-1, i), colors.Color(0.9, 0.9, 0.9))
+        # Style the table to match the example
+        table.setStyle(TableStyle([
+            # Header style
+            ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.85, 0.85, 0.85)),  # Light gray
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             
-    table.setStyle(style)
-    elements.append(table)
+            # Content style
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),    # Left align contract names
+            ('ALIGN', (1, 1), (2, -1), 'CENTER'),  # Center align dates
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),   # Right align values
+            
+            # Grid
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.grey),  # Slightly thicker line below header
+            
+            # Padding
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            
+            # Text wrapping
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Vertically center all content
+        ]))
+    else:
+        # Full report with all details
+        data = [['Contract #', 'Contract Name', 'Start Date', 'Expiration Date', 'Value', 'Status', 'Notes']]
+        for contract in contracts:
+            data.append([
+                contract.contract_number,
+                contract.contract_name,
+                contract.start_date.strftime('%Y-%m-%d') if contract.start_date else '',
+                contract.expiration_date.strftime('%Y-%m-%d') if contract.expiration_date else '',
+                "${:,.2f}".format(contract.value) if contract.value else '',
+                contract.status,
+                contract.notes if contract.notes else ''
+            ])
+        
+        # Create the table with appropriate styling
+        table = Table(data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ]))
     
-    # Build PDF
+    elements.append(table)
     doc.build(elements)

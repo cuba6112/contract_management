@@ -34,6 +34,28 @@
             {% endif %}
         {% endwith %}
 
+        <!-- Search Form -->
+        <div class="row mb-3">
+            <div class="col">
+                <form method="GET" action="{{ url_for('index') }}" class="form-inline">
+                    <div class="input-group">
+                        <select name="search_field" class="form-select" style="max-width: 200px;">
+                            <option value="contract_number" {% if search_field == 'contract_number' %}selected{% endif %}>Contract Number</option>
+                            <option value="contract_name" {% if search_field == 'contract_name' %}selected{% endif %}>Contract Name</option>
+                            <option value="status" {% if search_field == 'status' %}selected{% endif %}>Status</option>
+                            <option value="value" {% if search_field == 'value' %}selected{% endif %}>Value</option>
+                            <option value="notes" {% if search_field == 'notes' %}selected{% endif %}>Notes</option>
+                        </select>
+                        <input type="text" name="search_term" class="form-control" value="{{ search_term if search_term }}" placeholder="Search...">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                        {% if search_term %}
+                            <a href="{{ url_for('index') }}" class="btn btn-secondary">Clear Search</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <div class="row mb-3">
             <div class="col">
                 <a href="{{ url_for('add_contract') }}" class="btn btn-primary">Add New Contract</a>
@@ -50,6 +72,9 @@
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="{{ url_for('generate_report', sort_by='expiration_date', order='asc', active_only='true') }}">Active Contracts by Expiration (Ascending)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('generate_report', sort_by='expiration_date', order='desc', active_only='true') }}">Active Contracts by Expiration (Descending)</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('generate_report', report_type='simplified', sort_by='expiration_date', order='asc') }}">Simplified Contract Report (Expiration ↑)</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('generate_report', report_type='simplified', sort_by='expiration_date', order='desc') }}">Simplified Contract Report (Expiration ↓)</a></li>
                     </ul>
                 </div>
             </div>
